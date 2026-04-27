@@ -1,0 +1,6 @@
+{
+  "name": "Stitch Design System Extractor",
+  "description": "A robust tool to parse HTML/CSS and output a structured, AI-ready design.md specification.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}

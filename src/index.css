@@ -1,0 +1,21 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  
+  --color-blueprint: #0047ab;
+  --color-paper: #fcfcf9;
+}
+
+@layer base {
+  body {
+    background-color: var(--color-paper);
+    background-image: 
+      linear-gradient(to right, rgba(0, 71, 171, 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(0, 71, 171, 0.05) 1px, transparent 1px);
+    background-size: 24px 24px;
+    color: #1a1a1a;
+  }
+}
