@@ -35,12 +35,26 @@ async function startServer() {
       } catch (err: any) {
          console.warn(`Direct fetch failed, falling back to proxy: ${targetUrl} (${err.message})`);
          // Fallback to proxy
-         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
-         const proxyRes = await axios.get(proxyUrl);
-         if (proxyRes.data && proxyRes.data.contents) {
-           html = proxyRes.data.contents;
-         } else {
-           throw err;
+         try {
+           const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+           const proxyRes = await axios.get(proxyUrl, { timeout: 15000 });
+           
+           if (proxyRes.data?.status?.http_code >= 400) {
+             throw new Error(`The website blocks automated extraction (HTTP ${proxyRes.data.status.http_code}). Please use the Manual Input mode to paste the HTML/CSS directly.`);
+           }
+
+           if (proxyRes.data && proxyRes.data.contents) {
+             html = proxyRes.data.contents;
+           } else {
+             throw new Error(`The website could not be accessed properly. Please try using manual input.`);
+           }
+         } catch (proxyErr: any) {
+           console.warn(`Proxy fetch also failed: ${proxyErr.message}`);
+           // If it's our thrown Error, keep its message - otherwise format it
+           const errMsg = proxyErr.isAxiosError 
+             ? `The website blocks automated extraction or is unreachable. Please use the Manual Input mode.`
+             : proxyErr.message;
+           throw new Error(errMsg);
          }
       }
 
@@ -104,7 +118,7 @@ async function startServer() {
       res.json({ html, css, title });
     } catch (error: any) {
       console.error("Error fetching site:", error.message);
-      res.status(500).json({ error: "Failed to fetch website content: " + (error.response?.status ? `HTTP ${error.response.status}` : error.message) });
+      res.status(500).json({ error: error.message || "Failed to fetch website content." });
     }
   });
 

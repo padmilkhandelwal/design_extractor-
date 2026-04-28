@@ -135,7 +135,7 @@ export default function App() {
       // 3. AI Enhancement (Gemini)
       setIsAIProcessing(true);
       const prompt = `
-        You are a Senior Design Engineer. I am building a "design.md" file for an AI agent (Stitch) to use as a source of truth.
+        You are a Senior Design Engineer. I am building a "design.md" file for an AI agent (DesignYourMD) to use as a source of truth.
         
         Website URL: ${siteUrl}
         
@@ -241,18 +241,20 @@ export default function App() {
             <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
               <div className="space-y-4">
                 <pre className="text-[10px] leading-[1.1] text-blueprint font-mono opacity-80 select-none">
-{`   _____ _______ _____ _______ _____ _    _ 
-  / ____|__   __|_   _|__   __/ ____| |  | |
- | (___    | |    | |    | | | |    | |__| |
-  \\___ \\   | |    | |    | | | |    |  __  |
-  ____) |  | |   _| |_   | | | |____| |  | |
- |_____/   |_|  |_____|  |_|  \\_____|_|  |_|
+{` _____           _             __  __ _____  
+|  __ \\         (_)           |  \\/  |  __ \\ 
+| |  | | ___ ___ _  __ _ _ __ | \\  / | |  | |
+| |  | |/ _ \\/ __| |/ _\` | '_ \\| |\\/| | |  | |
+| |__| |  __/\\__ \\ | (_| | | | | |  | | |__| |
+|_____/ \\___||___/_|\\__, |_| |_|_|  |_|_____/
+                     __/ |                   
+                    |___/                    
                                              
- [ STITCH_ENGINE_v1.0 // P-ARCH_SPEC ]`}
+ [ DESIGNYOURMD_ENGINE_v1.0 // P-ARCH_SPEC ]`}
                 </pre>
                 <div>
-                  <h1 className="text-2xl font-light tracking-widest text-blueprint uppercase">Extract Agent Design</h1>
-                  <p className="font-mono text-[10px] text-gray-500 mt-1 uppercase tracking-tight">Technical Specification Generator for AI-Driven Workflows</p>
+                  <h1 className="text-2xl font-light tracking-widest text-blueprint uppercase">Create a Design file from any website</h1>
+                  <p className="font-mono text-[10px] text-gray-500 mt-1 uppercase tracking-tight">DESIGN.md gives agents a persistent, structured understanding of a design system.</p>
                 </div>
               </div>
 
@@ -524,7 +526,7 @@ export default function App() {
         <div className="fixed bottom-12 right-12 text-[8px] font-mono text-blueprint/10 select-none pointer-events-none md:block hidden">
           [ SYSTEM_ID: ALPHA_XRAY_SPEC_44 ]<br />
           [ ENCRYPTION: NONE // PUBLIC_DRAFT ]<br />
-          [ AUTH: AGENT_STITCH ]
+          [ AUTH: AGENT_DESIGNYOURMD ]
         </div>
 
         {/* Try It Now Preview Overlay */}
@@ -802,7 +804,7 @@ function ThemePreviewOverlay({ data, title, siteUrl, html, css, onClose }: { dat
                          <div className="mt-4">
                            <div className="text-[10px] font-semibold opacity-40 uppercase tracking-widest mb-1" style={{ fontFamily: 'var(--theme-font)' }}>HTML Source</div>
                            <pre className="text-xs overflow-x-auto whitespace-pre-wrap p-3 opacity-60" style={{ backgroundColor: 'var(--theme-text-10)', color: 'var(--theme-text)', borderRadius: 'var(--theme-radius)', fontFamily: 'var(--theme-font)' }}>
-                             {(c.html.length > 400 ? c.html.substring(0, 400) + '...' : c.html).trim()}
+                             {((c.cleanHtml || c.html).length > 400 ? (c.cleanHtml || c.html).substring(0, 400) + '...' : (c.cleanHtml || c.html)).trim()}
                            </pre>
                          </div>
                       </div>

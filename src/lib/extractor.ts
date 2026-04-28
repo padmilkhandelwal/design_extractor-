@@ -15,6 +15,7 @@ export interface ComponentSpec {
   name: string;
   selector: string;
   html: string;
+  cleanHtml?: string;
   styles: string[];
   radius?: string;
 }
@@ -206,14 +207,15 @@ export function extractDesignSystem(html: string, css: string): DesignSystemData
         const cleanClasses = allClasses.slice(0, 3);
         
         let displayHtml = el.outerHTML;
-        displayHtml = displayHtml.replace(/class="([^"]+)"/g, (match, classes) => {
+        let cleanHtml = displayHtml;
+        cleanHtml = cleanHtml.replace(/class="([^"]+)"/g, (match, classes) => {
           const clsList = classes.split(/\s+/);
           if (clsList.length > 3) {
             return `class="${clsList.slice(0, 3).join(' ')} ..."`;
           }
           return match;
         });
-        displayHtml = displayHtml.replace(/\s+(data|aria)-[a-zA-Z0-9-]+="[^"]*"/g, '');
+        cleanHtml = cleanHtml.replace(/\s+(data|aria)-[a-zA-Z0-9-]+="[^"]*"/g, '');
 
         let foundRadius: string | undefined;
         if (allClasses.length > 0) {
@@ -237,6 +239,7 @@ export function extractDesignSystem(html: string, css: string): DesignSystemData
           name,
           selector: cleanClasses.length > 0 ? `.${cleanClasses.join('.')}` : el.tagName.toLowerCase(),
           html: displayHtml,
+          cleanHtml: cleanHtml,
           styles: [],
           radius: foundRadius
         });
