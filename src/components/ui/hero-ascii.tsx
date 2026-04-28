@@ -1,6 +1,83 @@
+
 'use client';
 
 import { Zap } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+
+// Decodes random characters into final text
+const ASCII_ART = `
+            @@@@@@@@@@@@@@@@@@@@
+          @@@@@@%          %@@@@@
+         @@@@                  @@@@
+        @@@   @@@          @@@   @@@
+       @@@   @@@@@        @@@@@   @@@
+       @@@   @@@@@   @@   @@@@@   @@@
+       @@@          @@@@          @@@
+       @@@@        @@@@@@        @@@@
+        @@@@                    @@@@
+         @@@@@                @@@@@
+           @@@@@@@@@@@@@@@@@@@@@
+               @@@@@@@@@@@@@
+
+        [ MODEL: DESIGNYOURMD ]
+        [ STATUS: ACTIVE      ]`;
+
+const CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789@#%&*+-/[]";
+
+function AsciiMatrixDecoder({ text }: { text: string }) {
+  const [display, setDisplay] = useState('');
+
+  useEffect(() => {
+    let iteration = 0;
+    const maxIterations = 30; // Total times it updates
+
+    // Create initial random string same length as text
+    const textLines = text.split('\n');
+
+    const intervalId = setInterval(() => {
+      setDisplay(
+        textLines
+          .map(line =>
+             line
+              .split('')
+              .map((char, index) => {
+                if (char === ' ' || char === '\n') return char;
+                // Reveal from left to right, top to bottom
+                if (iteration > (index / line.length) * maxIterations) {
+                  return char;
+                }
+                return CHARS[Math.floor(Math.random() * CHARS.length)];
+              })
+              .join('')
+          ).join('\n')
+      );
+
+      iteration++;
+      if (iteration > maxIterations) {
+        clearInterval(intervalId);
+        setDisplay(text);
+      }
+    }, 50);
+
+    return () => clearInterval(intervalId);
+  }, [text]);
+
+  // Initial random string to avoid flash of empty
+  if (!display) {
+    return (
+       <pre className="font-mono text-[8px] sm:text-[10px] md:text-xs leading-[1.1] text-[#0047ab] select-none font-bold">
+        {text.split('').map(c => c === ' ' || c === '\n' ? c : CHARS[Math.floor(Math.random() * CHARS.length)]).join('')}
+       </pre>
+    )
+  }
+
+  return (
+    <pre className="font-mono text-[8px] sm:text-[10px] md:text-xs leading-[1.1] text-[#0047ab] select-none font-bold">
+      {display}
+    </pre>
+  );
+}
+
 
 export default function HeroAscii() {
   return (
@@ -10,7 +87,7 @@ export default function HeroAscii() {
         <div className="container mx-auto px-4 lg:px-8 py-3 lg:py-4 flex items-center justify-between">
           <div className="flex items-center gap-2 lg:gap-4">
             <div className="font-mono text-[#0047ab] text-xl lg:text-2xl font-black tracking-widest italic transform -skew-x-12">
-              DESIGN_EXTRACT
+              DESIGN_YOUR_MD
             </div>
             <div className="h-3 lg:h-4 w-px bg-[#0047ab]/20"></div>
             <span className="text-[#0047ab]/60 text-[8px] lg:text-[10px] font-mono font-bold tracking-widest">EST. 2025</span>
@@ -72,31 +149,14 @@ export default function HeroAscii() {
             <div className="hidden lg:flex items-center gap-2 mt-8 opacity-40">
               <span className="text-[#0047ab] text-[9px] font-mono font-bold">∞</span>
               <div className="flex-1 h-px bg-[#0047ab]"></div>
-              <span className="text-[#0047ab] text-[9px] font-mono font-bold tracking-widest">STITCH_ENGINE</span>
+              <span className="text-[#0047ab] text-[9px] font-mono font-bold tracking-widest">DESIGNYOURMD_ENGINE</span>
             </div>
           </div>
         </div>
 
         {/* Right Content - ASCII Character Art */}
-        <div className="w-full lg:w-1/2 flex items-center justify-center p-6 lg:p-0 opacity-80 mix-blend-multiply flex-shrink-0">
-            <pre className="font-mono text-[8px] sm:text-[10px] md:text-xs leading-[1.1] text-[#0047ab] select-none font-bold">
-{`            
-            @@@@@@@@@@@@@@@@@@@@
-          @@@@@@%          %@@@@@
-         @@@@                  @@@@
-        @@@   @@@          @@@   @@@
-       @@@   @@@@@        @@@@@   @@@
-       @@@   @@@@@   @@   @@@@@   @@@
-       @@@          @@@@          @@@
-       @@@@        @@@@@@        @@@@
-        @@@@                    @@@@
-         @@@@@                @@@@@
-           @@@@@@@@@@@@@@@@@@@@@
-               @@@@@@@@@@@@@
-
-          [ MODEL: STITCH_AI ]
-          [ STATUS: READY    ]`}
-            </pre>
+        <div className="w-full lg:w-1/2 flex items-center justify-center p-6 lg:p-0 opacity-80 mix-blend-multiply flex-shrink-0 min-h-[300px]">
+           <AsciiMatrixDecoder text={ASCII_ART} />
         </div>
       </div>
 
