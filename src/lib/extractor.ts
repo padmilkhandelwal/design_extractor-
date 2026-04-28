@@ -16,6 +16,7 @@ export interface ComponentSpec {
   selector: string;
   html: string;
   styles: string[];
+  radius?: string;
 }
 
 export interface DesignSystemData {
@@ -119,20 +120,31 @@ export function extractDesignSystem(html: string, css: string): DesignSystemData
   uniqueFonts.forEach((val, i) => fontSizes[`text-${i+1}`] = val);
 
   // 3. Extract Spacing (Margin, Padding, Gap)
-  const spacingRegex = /(?:margin|padding|gap):\s*([^;]+);/g;
+  const spacingRegex = /(?:margin|padding|gap)(?:-(?:top|right|bottom|left))?:\s*([^;}!]+)(?:!important)?/g;
   let spaceVals: string[] = [];
   while ((match = spacingRegex.exec(css)) !== null) {
-    spaceVals.push(match[1].trim());
+      let val = match[1].trim();
+      if (/^(\d+(\.\d+)?(px|rem|em|vh|vw|%)|0)$/.test(val)) {
+          spaceVals.push(val);
+      }
   }
-  const uniqueSpacing = Array.from(new Set(spaceVals)).slice(0, 15);
+  
+  const spaceCountMap: Record<string, number> = {};
+  for (const v of spaceVals) { spaceCountMap[v] = (spaceCountMap[v] || 0) + 1; }
+  
+  const uniqueSpacing = Object.keys(spaceCountMap).sort((a,b) => spaceCountMap[b] - spaceCountMap[a]).slice(0, 15);
   const spacing: Record<string, string> = {};
   uniqueSpacing.forEach((val, i) => spacing[`space-${i+1}`] = val);
 
   // Extract Radii
-  const radiusRegex = /border-radius:\s*([^;}]+)/g;
+  const radiusRegex = /border-radius:\s*([^;}!]+)/g;
   let radiusVals: string[] = [];
   while ((match = radiusRegex.exec(css)) !== null) {
-    radiusVals.push(match[1].trim());
+      let val = match[1].trim();
+      if (/^(\d+(\.\d+)?(px|rem|em)|0|50%)$/.test(val)) {
+          if (val === '50%') val = '9999px'; // Normalise to pill since percentage isn't always useful for buttons unless they are perfectly square
+          radiusVals.push(val);
+      }
   }
   
   const countMap: Record<string, number> = {};
@@ -144,7 +156,7 @@ export function extractDesignSystem(html: string, css: string): DesignSystemData
   uniqueRadii.forEach((val, i) => radii[`radius-${i+1}`] = val);
 
   // Extract Fonts
-  const fontRegex = /font-family:\s*([^;]+);/g;
+  const fontRegex = /font-family:\s*([^;}!]+)/g;
   let fontFamilies: string[] = [];
   while ((match = fontRegex.exec(css)) !== null) {
     const f = match[1].trim().replace(/['"]/g, '');
@@ -160,29 +172,81 @@ export function extractDesignSystem(html: string, css: string): DesignSystemData
   const doc = parser.parseFromString(html, 'text/html');
   const components: ComponentSpec[] = [];
 
-  // Identify Buttons as a primary example
-  const buttons = doc.querySelectorAll('button, .btn, .button');
-  if (buttons.length > 0) {
-    const btn = buttons[0];
-    components.push({
-      name: 'Button',
-      selector: btn.className ? `.${btn.className.split(' ').join('.')}` : 'button',
-      html: btn.outerHTML,
-      styles: [] // In a full implementation, we'd find matching CSS rules
-    });
-  }
+  const extractEl = (name: string, selectors: string) => {
+    const els = doc.querySelectorAll(selectors);
+    
+    // Try to find an element that represents a solid component (has text, reasonable size)
+    let bestEl: Element | null = null;
+    let maxScore = -1;
 
-  // Identify Cards
-  const cards = doc.querySelectorAll('.card, .container, section');
-  if (cards.length > 0) {
-    const card = cards[0];
-    components.push({
-      name: 'Container/Card',
-      selector: card.className ? `.${card.className.split(' ').join('.')}` : 'div',
-      html: card.outerHTML.substring(0, 300) + '...',
-      styles: []
-    });
-  }
+    for (let i = 0; i < els.length; i++) {
+        const el = els[i];
+        if (!el || el.outerHTML.length > 50000) continue;
+        
+        // Exclude likely icon-only buttons if possible, prefer buttons with text context
+        let score = 0;
+        if (el.textContent && el.textContent.trim().length > 2) score += 5;
+        if (el.className && typeof el.className === 'string') {
+           if (el.className.includes('primary')) score += 10;
+           if (el.className.includes('btn')) score += 5;
+           if (el.className.includes('solid')) score += 5;
+           score += el.classList.length;
+        }
+
+        if (score > maxScore) {
+           maxScore = score;
+           bestEl = el;
+        }
+    }
+
+    if (!bestEl) return;
+    const el = bestEl;
+
+    const allClasses = Array.from(el.classList).filter(c => /^[a-zA-Z0-9-_:]+$/.test(c));
+        const cleanClasses = allClasses.slice(0, 3);
+        
+        let displayHtml = el.outerHTML;
+        displayHtml = displayHtml.replace(/class="([^"]+)"/g, (match, classes) => {
+          const clsList = classes.split(/\s+/);
+          if (clsList.length > 3) {
+            return `class="${clsList.slice(0, 3).join(' ')} ..."`;
+          }
+          return match;
+        });
+        displayHtml = displayHtml.replace(/\s+(data|aria)-[a-zA-Z0-9-]+="[^"]*"/g, '');
+
+        let foundRadius: string | undefined;
+        if (allClasses.length > 0) {
+            if (allClasses.some(c => c.includes('rounded-full') || c.includes('pill'))) {
+                 foundRadius = '9999px';
+            } else {
+                for (const c of allClasses) {
+                   // Escape colons for tailwind variants like sm:rounded-md
+                   const escapedC = c.replace(/:/g, '\\\\:');
+                   const regex = new RegExp(`\\.${escapedC}[^{]*\\{[^}]*border-radius:\\s*([^;}!]+)`, 'is');
+                   const match = css.match(regex);
+                   if (match) {
+                       foundRadius = match[1].trim();
+                       break;
+                   }
+                }
+            }
+        }
+
+        components.push({
+          name,
+          selector: cleanClasses.length > 0 ? `.${cleanClasses.join('.')}` : el.tagName.toLowerCase(),
+          html: displayHtml,
+          styles: [],
+          radius: foundRadius
+        });
+  };
+
+  // Extract a few different semantic/interactive elements to serve as component reference
+  extractEl('Action / Button', 'button, [role="button"], a.btn, a.button');
+  extractEl('Navigation', 'nav, header, [role="navigation"]');
+  extractEl('Container / Section', 'article, section, .container, .card, [data-testid*="container"]');
+  extractEl('Input / Form', 'input, textarea, select, [role="searchbox"], [role="textbox"]');
 
   return {
     tokens: {

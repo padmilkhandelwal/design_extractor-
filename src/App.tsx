@@ -551,6 +551,8 @@ export default function App() {
 function ThemePreviewOverlay({ data, title, siteUrl, html, css, onClose }: { data: DesignSystemData, title: string, siteUrl: string, html: string, css: string, onClose: () => void }) {
   const colors = data.tokens.colors;
   
+  const safeSiteUrl = siteUrl.startsWith('http') ? siteUrl : `https://${siteUrl}`;
+  
   // Extract primary colors for dynamic theming
   const bg = colors['bg-primary'] || '#ffffff';
   let text = colors['text-primary'] || '#1a1a1a';
@@ -558,9 +560,17 @@ function ThemePreviewOverlay({ data, title, siteUrl, html, css, onClose }: { dat
   
   // Contrast helper
   const getContrast = (c1: string, c2: string) => {
-    const toRgb = (hex: string) => {
-      let h = hex.replace('#', '');
-      if (h.length === 3) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+    const toRgb = (color: string) => {
+      let c = color.trim();
+      if (c.startsWith('rgb')) {
+        const match = c.match(/[\d.]+/g);
+        if (match && match.length >= 3) return [parseFloat(match[0]), parseFloat(match[1]), parseFloat(match[2])];
+      }
+      if (c.startsWith('hsl')) return [0, 0, 0]; // fallback for hsl
+      if (c.startsWith('var')) return [0, 0, 0]; // fallback for css vars
+      
+      let h = c.replace('#', '');
+      if (h.length === 3 || h.length === 4) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
       if (h.length < 6) return [0,0,0];
       return [parseInt(h.slice(0,2), 16), parseInt(h.slice(2,4), 16), parseInt(h.slice(4,6), 16)];
     };
@@ -568,21 +578,83 @@ function ThemePreviewOverlay({ data, title, siteUrl, html, css, onClose }: { dat
       const a = [r,g,b].map(v => { v/=255; return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4); });
       return a[0]*0.2126 + a[1]*0.7152 + a[2]*0.0722;
     };
-    const l1 = lum(toRgb(c1));
-    const l2 = lum(toRgb(c2));
+    const rgb1 = toRgb(c1);
+    const rgb2 = toRgb(c2);
+    if (isNaN(rgb1[0]) || isNaN(rgb2[0])) return 1;
+    const l1 = lum(rgb1);
+    const l2 = lum(rgb2);
     return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
   };
 
   let brandColors = Object.values(colors).filter(c => c !== bg && c !== text && c !== '#ffffff' && c !== '#000000');
-  brandColors = brandColors.filter(c => getContrast(c, bg) > 1.5);
+  brandColors = brandColors.filter(c => getContrast(c, bg) > 1.2);
+  
+  const getSaturation = (color: string) => {
+    let c = color.trim();
+    if (c.startsWith('var') || c.startsWith('hsl') || c.startsWith('rgb')) return 0;
+    let h = c.replace('#', '');
+    if (h.length === 3 || h.length === 4) h = h[0]+h[0]+h[1]+h[1]+h[2]+h[2];
+    if (h.length < 6) return 0;
+    const r = parseInt(h.slice(0,2), 16) / 255;
+    const g = parseInt(h.slice(2,4), 16) / 255;
+    const b = parseInt(h.slice(4,6), 16) / 255;
+    if (isNaN(r)) return 0;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    return max === 0 ? 0 : (max - min) / max;
+  };
+  
+  brandColors.sort((a, b) => getSaturation(String(b)) - getSaturation(String(a)));
+  
   const brand = brandColors[0] || text; // Fallback to text color if no distinctive contrasting color
   
   const isBrandDark = getContrast(brand, '#ffffff') > getContrast(brand, '#000000');
   const brandText = isBrandDark ? '#ffffff' : '#000000';
 
   const fontFam = (data.tokens.fonts && data.tokens.fonts.length > 0) ? `"${data.tokens.fonts[0]}", sans-serif` : 'sans-serif';
-  const baseRadius = (data.tokens.radii && data.tokens.radii['radius-1']) || '0px';
-  const btnRadius = (data.tokens.radii && data.tokens.radii['radius-2']) || baseRadius;
+  let baseRadius = '0px';
+  let btnRadius = '0px';
+  if (data.tokens.radii) {
+      // Access values in insertion order (which is frequency order from extractor)
+      const rList = Array.from({length: 10}, (_, i) => data.tokens.radii[`radius-${i+1}`]).filter(Boolean);
+      const isPxRem = (v: string) => /^\d+(\.\d+)?(px|rem)$/.test(v);
+      const getVal = (v: string) => parseFloat(v) * (v.includes('rem') ? 16 : 1);
+      
+      const freqSizes = rList.filter(isPxRem);
+      if (freqSizes.length > 0) {
+          baseRadius = freqSizes[0];
+          btnRadius = baseRadius;
+          
+          const btnComp = data.components?.find(c => c.name.includes('Button') || c.name.includes('Action'));
+          let compRadius = btnComp?.radius;
+          
+          if (compRadius) {
+              // Extract fallback from var() if possible
+              if (compRadius.includes('var(')) {
+                  const match = compRadius.match(/,\s*([^)]+)\)/);
+                  if (match) compRadius = match[1].trim();
+              }
+              if (compRadius && isPxRem(compRadius) || compRadius === '50%' || compRadius === '9999px' || compRadius === '0') {
+                  btnRadius = compRadius;
+                  if (btnRadius === '50%') btnRadius = '9999px';
+               }
+          }
+          
+          if (!btnComp?.radius || (!isPxRem(btnRadius) && btnRadius !== '9999px')) {
+              const top3 = rList.slice(0, 3);
+              if (top3.includes('9999px') && !top3.includes('0px') && !top3.includes('0')) {
+                  btnRadius = '9999px';
+              } else if (getVal(baseRadius) === 0) {
+                  btnRadius = freqSizes.find(v => getVal(v) > 0) || '0px';
+              }
+              
+              if (getVal(btnRadius) > 32 && btnRadius !== '9999px') {
+                  const smaller = freqSizes.find(v => getVal(v) <= 32 && getVal(v) > 0);
+                  if (smaller) btnRadius = smaller;
+              }
+          }
+      }
+  }
 
   // Extract font-face and imports to apply fonts to the overlay globally
   const fontStyles = css.match(/@(?:font-face|import)[^;{]+(?:{[^}]+})?;?/g)?.join('\n') || '';
@@ -611,13 +683,13 @@ function ThemePreviewOverlay({ data, title, siteUrl, html, css, onClose }: { dat
   const iframeSrcDoc = `
     <html>
       <head>
+        <base href="${safeSiteUrl}" />
         <style>
           /* Injected Extracted CSS */
           ${css}
           
           /* Read-only overlay and scrollbar styling */
           body { 
-            pointer-events: none !important; 
             margin: 0;
             padding: 0;
             overflow-x: hidden;
@@ -636,92 +708,76 @@ function ThemePreviewOverlay({ data, title, siteUrl, html, css, onClose }: { dat
 
   return (
     <div 
-      className="fixed inset-0 z-[100] overflow-y-auto font-sans border-[12px] border-white"
+      className="fixed inset-0 z-[100] overflow-y-auto"
       style={themeStyle}
     >
       <style>{fontStyles}</style>
-      <div className="min-h-full border relative m-2 md:m-4" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'var(--theme-bg)' }}>
+      <div className="min-h-full bg-white transition-colors duration-500" style={{ backgroundColor: 'var(--theme-bg)' }}>
         
         {/* Header */}
-        <div className="sticky top-0 z-50 p-4 md:p-8 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 backdrop-blur-sm border-b" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'var(--theme-bg)' }}>
+        <div className="sticky top-0 z-50 p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b/50" style={{ borderColor: 'var(--theme-text-10)', backgroundColor: 'var(--theme-bg)' }}>
           <div className="flex items-center gap-4">
-            <div className="w-8 h-8 border flex items-center justify-center font-mono text-xs" style={{ borderColor: 'var(--theme-text-30)', backgroundColor: 'var(--theme-text)', color: 'var(--theme-bg)', borderRadius: 'var(--theme-btn-radius)' }}>
+            <div className="w-10 h-10 flex items-center justify-center text-lg font-bold" style={{ backgroundColor: 'var(--theme-text)', color: 'var(--theme-bg)', borderRadius: 'var(--theme-radius)', fontFamily: 'var(--theme-font)' }}>
               {title.charAt(0).toUpperCase()}
             </div>
             <div>
-              <div className="font-mono font-bold text-sm tracking-widest uppercase" style={{ color: 'var(--theme-text)' }}>{title}</div>
-              <div className="text-[10px] uppercase font-mono opacity-60 tracking-widest">Design System Live Preview</div>
+              <div className="font-bold text-lg leading-none" style={{ color: 'var(--theme-text)', fontFamily: 'var(--theme-font)' }}>{title}</div>
+              <div className="text-xs opacity-60 mt-1" style={{ fontFamily: 'var(--theme-font)' }}>Live Preview</div>
             </div>
           </div>
-          <button onClick={onClose} className="px-6 py-3 border font-bold uppercase text-[10px] tracking-widest transition-colors flex items-center gap-2 hover:opacity-80 shadow-sm" style={{ borderColor: 'var(--theme-text-20)', color: 'var(--theme-text)', backgroundColor: 'var(--theme-bg)', borderRadius: 'var(--theme-btn-radius)' }}>
-             EXIT PREVIEW [X]
+          <button onClick={onClose} className="px-6 py-2.5 font-medium transition-all hover:-translate-y-0.5" style={{ color: 'var(--theme-text)', backgroundColor: 'var(--theme-text-10)', borderRadius: 'var(--theme-btn-radius)', fontFamily: 'var(--theme-font)' }}>
+             Exit Preview
           </button>
         </div>
 
-        <div className="max-w-7xl mx-auto p-4 md:p-8 space-y-8">
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8">
-            
-            {/* Main Hero & Demo */}
-            <div className="md:col-span-8 space-y-6">
-               {/* Hero */}
-               <div className="p-8 md:p-12 border relative flex flex-col md:flex-row gap-8 items-center justify-between" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'var(--theme-bg)', borderRadius: 'var(--theme-radius)' }}>
-                 <div className="flex-1 space-y-4">
-                   <h1 className="text-3xl md:text-5xl font-black leading-[1.1] uppercase tracking-wide" style={{ color: 'var(--theme-text)' }}>
-                     System<br/>Mapped.
-                   </h1>
-                   <p className="text-xs font-mono opacity-80 leading-relaxed max-w-sm">
-                     The tokens extracted from <strong>{title}</strong> have been mapped to standardized primitives. UI elements are dynamically structured using the extracted palette.
-                   </p>
-                   <div className="flex gap-4 pt-4">
-                     <button className="px-6 py-3 font-bold text-[10px] font-mono tracking-widest uppercase hover:translate-y-px hover:translate-x-px transition-all flex items-center gap-2 shadow-md" style={{ backgroundColor: 'var(--theme-text)', color: 'var(--theme-bg)', borderRadius: 'var(--theme-btn-radius)' }}>
-                       START BUILDING
-                     </button>
-                   </div>
-                 </div>
-                 {/* ASCII Hero Character */}
-                 <div className="font-mono whitespace-pre text-[10px] md:text-xs font-bold leading-[1.2] select-none text-center hidden md:block" style={{ color: 'var(--theme-text)' }}>
-{`   _____ 
-  /     \\ 
- | () () | 
-  \\  ^  /  
- ||||||||| 
- ||||||||| `}
-                 </div>
-               </div>
+        <div className="max-w-7xl mx-auto p-6 md:p-12 space-y-12">
+          
+          {/* Main Hero */}
+          <div className="pt-8 pb-12 flex flex-col gap-6 max-w-3xl">
+            <h1 className="text-5xl md:text-7xl font-bold tracking-tight leading-[1.05]" style={{ color: 'var(--theme-text)', fontFamily: 'var(--theme-font)' }}>
+              Bringing<br/>technology to life
+            </h1>
+            <p className="text-lg md:text-xl opacity-70 leading-relaxed max-w-2xl mt-4" style={{ fontFamily: 'var(--theme-font)' }}>
+              The extracted tokens from {title} have been mapped to standardized primitives. UI elements are dynamically structured using the extracted palette.
+            </p>
+            <div className="flex flex-wrap gap-4 pt-6">
+              <button className="px-8 py-3.5 font-medium transition-transform hover:-translate-y-0.5 shadow-md shadow-black/5" style={{ backgroundColor: 'var(--theme-brand)', color: 'var(--theme-brand-text)', borderRadius: 'var(--theme-btn-radius)', fontFamily: 'var(--theme-font)' }}>
+                Start Building
+              </button>
+              <button className="px-8 py-3.5 font-medium transition-transform hover:-translate-y-0.5 border" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'transparent', color: 'var(--theme-text)', borderRadius: 'var(--theme-btn-radius)', fontFamily: 'var(--theme-font)' }}>
+                Contact Sales
+              </button>
+            </div>
+          </div>
 
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-10">
+            
+            {/* Main Content Area */}
+            <div className="md:col-span-8 space-y-10">
                {/* Read-Only Website Preview */}
-               <div className="space-y-4 pt-4">
-                  <div className="flex items-center gap-3 border-b pb-3" style={{ borderColor: 'var(--theme-text-20)' }}>
-                    <span className="font-mono text-[10px] px-2 py-1 font-bold" style={{ backgroundColor: 'var(--theme-text-10)', color: 'var(--theme-text)', borderRadius: 'var(--theme-btn-radius)' }}>01</span>
-                    <h3 className="text-sm font-bold uppercase tracking-widest" style={{ color: 'var(--theme-text)' }}>Extracted Representation (Iframe)</h3>
-                  </div>
-                  <div className="w-full h-[500px] border relative overflow-hidden shadow-sm" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'var(--theme-bg)', borderRadius: 'var(--theme-radius)' }}>
-                     {/* Transparent overlay */}
+               <div className="space-y-4">
+                  <h3 className="text-xl font-semibold opacity-90" style={{ fontFamily: 'var(--theme-font)' }}>Extracted Representation</h3>
+                  <div className="w-full h-[600px] relative overflow-hidden shadow-2xl" style={{ backgroundColor: 'var(--theme-bg)', borderRadius: 'var(--theme-radius)', borderColor: 'var(--theme-text-10)', borderWidth: '1px' }}>
                      <div className="absolute inset-0 z-10" />
                      <iframe 
                        srcDoc={iframeSrcDoc}
                        className="w-full h-full border-0 relative z-0"
                        title="Website Preview"
-                       sandbox="allow-same-origin allow-scripts"
+                       sandbox="allow-same-origin"
                      />
                   </div>
                </div>
                
                {/* Tokens Showcase */}
-               <div className="p-8 border shadow-sm" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'var(--theme-bg)', borderRadius: 'var(--theme-radius)' }}>
-                 <div className="flex items-center gap-3 border-b pb-3 mb-6" style={{ borderColor: 'var(--theme-text-20)' }}>
-                   <span className="font-mono text-[10px] px-2 py-1 font-bold" style={{ backgroundColor: 'var(--theme-text-10)', color: 'var(--theme-text)', borderRadius: 'var(--theme-btn-radius)' }}>02</span>
-                   <h3 className="text-sm font-bold uppercase tracking-widest" style={{ color: 'var(--theme-text)' }}>Color Schema Reference</h3>
-                 </div>
-                 <div className="flex flex-wrap gap-4">
+               <div className="space-y-6 pt-10">
+                 <h3 className="text-xl font-semibold opacity-90" style={{ fontFamily: 'var(--theme-font)' }}>Color Schema Reference</h3>
+                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
                     {Object.entries(colors).map(([name, val], i) => (
-                      <div key={i} className="flex flex-col gap-2 w-24">
-                        <div className="w-full h-16 border shadow-sm" style={{ borderColor: 'var(--theme-text-20)', borderRadius: 'var(--theme-btn-radius)', overflow: 'hidden' }}>
-                           <div className="w-full h-full" style={{ backgroundColor: val as string }} />
-                        </div>
-                        <div className="text-[9px] font-mono flex flex-col gap-0.5">
-                          <span className="uppercase truncate opacity-80" title={name}>{name}</span>
-                          <span className="truncate" style={{ color: 'var(--theme-text)' }}>{val as string}</span>
+                      <div key={i} className="flex flex-col gap-3 group">
+                        <div className="w-full aspect-square border shadow-sm transition-transform group-hover:scale-105" style={{ borderColor: 'var(--theme-text-10)', borderRadius: 'var(--theme-radius)', backgroundColor: val as string }} />
+                        <div className="text-sm flex flex-col gap-1" style={{ fontFamily: 'var(--theme-font)' }}>
+                          <span className="font-medium opacity-90 truncate" title={name}>{name}</span>
+                          <span className="opacity-60">{val as string}</span>
                         </div>
                       </div>
                     ))}
@@ -729,105 +785,90 @@ function ThemePreviewOverlay({ data, title, siteUrl, html, css, onClose }: { dat
                </div>
                
                {/* Extracted Components Showcase */}
-               <div className="p-8 border shadow-sm" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'var(--theme-bg)', borderRadius: 'var(--theme-radius)' }}>
-                 <div className="flex items-center gap-3 border-b pb-3 mb-6" style={{ borderColor: 'var(--theme-text-20)' }}>
-                   <span className="font-mono text-[10px] px-2 py-1 font-bold" style={{ backgroundColor: 'var(--theme-text-10)', color: 'var(--theme-text)', borderRadius: 'var(--theme-btn-radius)' }}>03</span>
-                   <h3 className="text-sm font-bold uppercase tracking-widest" style={{ color: 'var(--theme-text)' }}>Extracted Component Primitives</h3>
-                 </div>
-                 <div className="space-y-6">
+               <div className="space-y-6 pt-10">
+                 <h3 className="text-xl font-semibold opacity-90" style={{ fontFamily: 'var(--theme-font)' }}>Extracted HTML Primitives</h3>
+                 <div className="space-y-4">
                     {data.components && data.components.length > 0 ? data.components.map((c, i) => (
-                      <div key={i} className="border p-4 shadow-sm" style={{ borderColor: 'var(--theme-text-20)', borderRadius: 'var(--theme-radius)' }}>
-                         <div className="text-[9px] font-mono tracking-widest uppercase mb-4 opacity-70">SELECTOR: {c.selector}</div>
-                         <pre className="text-[8px] sm:text-[10px] overflow-x-auto whitespace-pre-wrap font-mono p-4" style={{ backgroundColor: 'var(--theme-text-10)', color: 'var(--theme-text)', borderRadius: 'var(--theme-radius)' }}>
-                           {(c.html.length > 300 ? c.html.substring(0, 300) + '...' : c.html).trim()}
-                         </pre>
+                      <div key={i} className="p-5 border shadow-sm" style={{ borderColor: 'var(--theme-text-10)', borderRadius: 'var(--theme-radius)' }}>
+                         <div className="text-xs font-semibold opacity-60 mb-3" style={{ fontFamily: 'var(--theme-font)' }}>{c.selector}</div>
+                         <div className="w-full relative bg-transparent rounded" style={{ minHeight: '120px', maxHeight: '300px', backgroundColor: 'var(--theme-bg)' }}>
+                           <iframe 
+                             srcDoc={`<html><head><base href="${safeSiteUrl}" /><style>${css}</style></head><body style="margin:0;padding:1rem;display:flex;align-items:center;justify-content:center;background:transparent;">${c.html}</body></html>`}
+                             className="w-full h-full border-0 absolute inset-0"
+                             title={c.name}
+                             sandbox="allow-same-origin allow-scripts"
+                           />
+                         </div>
+                         <div className="mt-4">
+                           <div className="text-[10px] font-semibold opacity-40 uppercase tracking-widest mb-1" style={{ fontFamily: 'var(--theme-font)' }}>HTML Source</div>
+                           <pre className="text-xs overflow-x-auto whitespace-pre-wrap p-3 opacity-60" style={{ backgroundColor: 'var(--theme-text-10)', color: 'var(--theme-text)', borderRadius: 'var(--theme-radius)', fontFamily: 'var(--theme-font)' }}>
+                             {(c.html.length > 400 ? c.html.substring(0, 400) + '...' : c.html).trim()}
+                           </pre>
+                         </div>
                       </div>
                     )) : (
-                      <div className="text-[10px] font-mono opacity-50 uppercase">No distinct primitives extracted...</div>
+                      <div className="text-sm opacity-60" style={{ fontFamily: 'var(--theme-font)' }}>No distinct primitives extracted...</div>
                     )}
                  </div>
                </div>
             </div>
 
             {/* Sidebar / Mock App */}
-            <div className="md:col-span-4 space-y-6">
-              <div className="p-6 border shadow-sm" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'var(--theme-bg)', borderRadius: 'var(--theme-radius)' }}>
-                 <div className="flex items-center gap-3 border-b pb-3 mb-6" style={{ borderColor: 'var(--theme-text-20)' }}>
-                   <span className="font-mono text-[10px] px-2 py-1 font-bold" style={{ backgroundColor: 'var(--theme-text-10)', color: 'var(--theme-text)', borderRadius: 'var(--theme-btn-radius)' }}>04</span>
-                   <h3 className="text-sm font-bold uppercase tracking-widest" style={{ color: 'var(--theme-text)' }}>Form Components</h3>
-                 </div>
-                 <div className="space-y-4 font-mono">
+            <div className="md:col-span-4 space-y-10">
+              
+              <div className="space-y-6">
+                 <h3 className="text-xl font-semibold opacity-90" style={{ fontFamily: 'var(--theme-font)' }}>Form Demo</h3>
+                 <div className="space-y-5">
                    <div>
-                     <label className="block text-[10px] font-bold uppercase tracking-widest mb-1 opacity-70">Email Address</label>
-                     <input type="text" className="w-full p-3 border outline-none text-xs" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'transparent', color: 'var(--theme-text)', borderRadius: 'var(--theme-btn-radius)' }} placeholder="dev@example.com" />
+                     <label className="block text-sm font-medium mb-2 opacity-80" style={{ fontFamily: 'var(--theme-font)' }}>Email Address</label>
+                     <input type="text" className="w-full px-4 py-3 border outline-none transition-colors focus:border-current" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'transparent', color: 'var(--theme-text)', borderRadius: 'var(--theme-radius)', fontFamily: 'var(--theme-font)' }} placeholder="dev@example.com" />
                    </div>
                    <div>
-                     <label className="block text-[10px] font-bold uppercase tracking-widest mb-1 opacity-70">Company Name</label>
-                     <input type="text" className="w-full p-3 border outline-none text-xs" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'transparent', color: 'var(--theme-text)', borderRadius: 'var(--theme-btn-radius)' }} placeholder="Acme Corp" />
+                     <label className="block text-sm font-medium mb-2 opacity-80" style={{ fontFamily: 'var(--theme-font)' }}>Company Name</label>
+                     <input type="text" className="w-full px-4 py-3 border outline-none transition-colors focus:border-current" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'transparent', color: 'var(--theme-text)', borderRadius: 'var(--theme-radius)', fontFamily: 'var(--theme-font)' }} placeholder="Acme Corp" />
                    </div>
-                   <div className="flex items-center gap-2 pt-2">
-                     <div className="w-4 h-4 border flex items-center justify-center" style={{ borderColor: 'var(--theme-brand)', backgroundColor: 'var(--theme-brand)', borderRadius: 'var(--theme-btn-radius)' }}>
-                     </div>
-                     <label className="text-[10px] uppercase font-bold" style={{ color: 'var(--theme-text)' }}>Accept Terms & Conditions</label>
-                   </div>
-                   <button className="w-full py-3 font-bold text-[10px] uppercase tracking-widest mt-4 hover:opacity-90 transition-all" style={{ backgroundColor: 'var(--theme-text)', color: 'var(--theme-bg)', borderRadius: 'var(--theme-btn-radius)' }}>
-                     Submit Configuration
+                   <button className="w-full py-4 font-medium mt-2 transition-transform hover:-translate-y-0.5 shadow-md shadow-black/5" style={{ backgroundColor: 'var(--theme-brand)', color: 'var(--theme-brand-text)', borderRadius: 'var(--theme-btn-radius)', fontFamily: 'var(--theme-font)' }}>
+                     Submit Details
                    </button>
                  </div>
               </div>
 
               {/* Typography Spec Showcase */}
-               <div className="p-6 border shadow-sm" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'var(--theme-bg)', borderRadius: 'var(--theme-radius)' }}>
-                 <div className="flex items-center gap-3 border-b pb-3 mb-6" style={{ borderColor: 'var(--theme-text-20)' }}>
-                   <span className="font-mono text-[10px] px-2 py-1 font-bold" style={{ backgroundColor: 'var(--theme-text-10)', color: 'var(--theme-text)', borderRadius: 'var(--theme-btn-radius)' }}>05</span>
-                   <h3 className="text-sm font-bold uppercase tracking-widest" style={{ color: 'var(--theme-text)' }}>Typography Schema</h3>
-                 </div>
-                 <div className="space-y-5">
+               <div className="space-y-6 pt-4">
+                 <h3 className="text-xl font-semibold opacity-90" style={{ fontFamily: 'var(--theme-font)' }}>Typography Scale</h3>
+                 <div className="space-y-6">
                    <div>
-                     <div className="text-[9px] font-mono tracking-widest opacity-60 uppercase mb-1">Heading 1</div>
-                     <div className="text-2xl font-black tracking-tight" style={{ fontWeight: 900 }}>System Specs</div>
+                     <div className="text-xs opacity-60 mb-2" style={{ fontFamily: 'var(--theme-font)' }}>Heading 1</div>
+                     <div className="text-3xl font-bold tracking-tight" style={{ fontFamily: 'var(--theme-font)' }}>System Specs</div>
                    </div>
                    <div>
-                     <div className="text-[9px] font-mono tracking-widest opacity-60 uppercase mb-1">Heading 2</div>
-                     <div className="text-lg font-bold tracking-tight" style={{ fontWeight: 700 }}>Base Tokens</div>
+                     <div className="text-xs opacity-60 mb-2" style={{ fontFamily: 'var(--theme-font)' }}>Heading 2</div>
+                     <div className="text-xl font-semibold" style={{ fontFamily: 'var(--theme-font)' }}>Base Tokens</div>
                    </div>
                    <div>
-                     <div className="text-[9px] font-mono tracking-widest opacity-60 uppercase mb-1">Body Text</div>
-                     <div className="text-[11px] opacity-80 leading-relaxed font-sans" style={{ fontFamily: 'var(--theme-font)' }}>
-                       This is a blueprint rendering of the typography system. The sizes and line heights are mapped to the extracted algorithmic parameters.
+                     <div className="text-xs opacity-60 mb-2" style={{ fontFamily: 'var(--theme-font)' }}>Body Copy</div>
+                     <div className="text-base opacity-80 leading-relaxed" style={{ fontFamily: 'var(--theme-font)' }}>
+                       This is a rendering of the typography system. The sizes and line heights map to extracted algorithmic parameters seamlessly.
                      </div>
-                   </div>
-                   <div className="pt-4 border-t" style={{ borderColor: 'var(--theme-text-10)' }}>
-                      <div className="text-[9px] font-mono tracking-widest opacity-60 uppercase mb-2">Variables Extracted</div>
-                      <div className="flex gap-2 flex-wrap">
-                        {Object.entries(data.tokens.fontSizes).slice(0,6).map(([name, s], idx) => (
-                          <div key={idx} className="px-2 py-1 border text-[9px] font-mono uppercase truncate max-w-[80px]" style={{ borderColor: 'var(--theme-text-20)', color: 'var(--theme-text)', borderRadius: 'var(--theme-btn-radius)' }}>
-                            {s}
-                          </div>
-                        ))}
-                      </div>
                    </div>
                  </div>
                </div>
                
                {/* Spacing Matrix Showcase */}
-               <div className="p-6 border shadow-sm" style={{ borderColor: 'var(--theme-text-20)', backgroundColor: 'var(--theme-bg)', borderRadius: 'var(--theme-radius)' }}>
-                 <div className="flex items-center gap-3 border-b pb-3 mb-6" style={{ borderColor: 'var(--theme-text-20)' }}>
-                   <span className="font-mono text-[10px] px-2 py-1 font-bold" style={{ backgroundColor: 'var(--theme-text-10)', color: 'var(--theme-text)', borderRadius: 'var(--theme-btn-radius)' }}>06</span>
-                   <h3 className="text-sm font-bold uppercase tracking-widest" style={{ color: 'var(--theme-text)' }}>Spacing Matrix</h3>
-                 </div>
-                 <div className="space-y-4">
-                   <div className="flex flex-col gap-3">
-                     {Object.entries(data.tokens.spacing).slice(0,5).map(([name, s], idx) => {
-                       const sizeVal = parseFloat(s) || (idx + 1) * 8; // fallback to 8px increments
-                       return (
-                         <div key={idx} className="flex items-center gap-4">
-                           <div className="w-16 text-[9px] font-mono opacity-60 uppercase">{s}</div>
-                           <div className="h-4" style={{ width: `${sizeVal}px`, backgroundColor: 'var(--theme-text-30)', borderRadius: 'var(--theme-btn-radius)' }} />
-                         </div>
-                       )
-                     })}
-                   </div>
+               <div className="space-y-6 pt-4">
+                 <h3 className="text-xl font-semibold opacity-90" style={{ fontFamily: 'var(--theme-font)' }}>Spacing Scale</h3>
+                 <div className="flex flex-col gap-4">
+                   {Object.entries(data.tokens.spacing).slice(0,6).map(([name, s], idx) => {
+                     const numTokens = s.match(/[\d.]+/g);
+                     const parseVal = numTokens ? parseFloat(numTokens[0]) : (idx + 1) * 8;
+                     const sizeVal = parseVal * (s.includes('rem') || s.includes('em') ? 16 : 1);
+                     return (
+                       <div key={idx} className="flex items-center gap-4">
+                         <div className="w-16 text-xs opacity-60 text-right" style={{ fontFamily: 'var(--theme-font)' }}>{s}</div>
+                         <div className="h-5 shadow-sm" style={{ width: `${Math.min(sizeVal, 200)}px`, backgroundColor: 'var(--theme-text-10)', borderRadius: 'var(--theme-radius)' }} />
+                       </div>
+                     )
+                   })}
                  </div>
                </div>
                

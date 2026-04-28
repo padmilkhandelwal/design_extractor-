@@ -33,18 +33,15 @@ async function startServer() {
         });
         html = response.data;
       } catch (err: any) {
-        if (err.response && (err.response.status === 403 || err.response.status === 401)) {
-           // Fallback to proxy
-           const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
-           const proxyRes = await axios.get(proxyUrl);
-           if (proxyRes.data && proxyRes.data.contents) {
-             html = proxyRes.data.contents;
-           } else {
-             throw err;
-           }
-        } else {
+         console.warn(`Direct fetch failed, falling back to proxy: ${targetUrl} (${err.message})`);
+         // Fallback to proxy
+         const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+         const proxyRes = await axios.get(proxyUrl);
+         if (proxyRes.data && proxyRes.data.contents) {
+           html = proxyRes.data.contents;
+         } else {
            throw err;
-        }
+         }
       }
 
       const $ = cheerio.load(html);
