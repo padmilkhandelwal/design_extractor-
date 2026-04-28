@@ -246,10 +246,18 @@ export function extractDesignSystem(html: string, css: string): DesignSystemData
   };
 
   // Extract a few different semantic/interactive elements to serve as component reference
-  extractEl('Action / Button', 'button, [role="button"], a.btn, a.button');
+  extractEl('Action / Button', 'button, [role="button"], a.btn, a.button, a[class*="button" i], a[class*="btn" i], a[class*="hover:" i]:not(nav a), a.group.inline-flex');
   extractEl('Navigation', 'nav, header, [role="navigation"]');
   extractEl('Container / Section', 'article, section, .container, .card, [data-testid*="container"]');
   extractEl('Input / Form', 'input, textarea, select, [role="searchbox"], [role="textbox"]');
+
+  // Extract simple transition info
+  const transitionRegex = /transition:\s*([^;}!]+)/g;
+  let transitions = [];
+  while ((match = transitionRegex.exec(css)) !== null) {
+      if (match[1].length < 30) transitions.push(match[1].trim());
+  }
+  const topTransitions = Array.from(new Set(transitions)).slice(0, 3);
 
   return {
     tokens: {
@@ -257,13 +265,14 @@ export function extractDesignSystem(html: string, css: string): DesignSystemData
       fontSizes,
       spacing,
       radii,
-      fonts: uniqueFontFamilies.length > 0 ? uniqueFontFamilies : ['Inter', 'sans-serif']
+      fonts: uniqueFontFamilies.length > 0 ? uniqueFontFamilies : ['Inter', 'sans-serif'],
+      animations: topTransitions.length > 0 ? topTransitions : ['all 0.2s ease-in-out']
     },
     components,
   };
 }
 
-export function generateMarkdown(data: DesignSystemData, title: string = 'Extracted Theme'): string {
+export function generateMarkdown(data: DesignSystemData & { tokens: DesignTokens & { animations?: string[] } }, title: string = 'Extracted Theme'): string {
   let md = `---
 name: ${title.replace(/:/g, '')}
 version: "alpha"
@@ -278,7 +287,6 @@ colors:
   }
   
   validColors.forEach(([name, val], i) => {
-    // Simplify names a bit for spec
     let safeName = name.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
     if (i === 0 && !validColors.find(c => c[0] === 'primary')) safeName = 'primary';
     md += `  ${safeName}: "${val}"\n`;
@@ -301,12 +309,25 @@ colors:
     }
   });
 
+  if (data.tokens.radii) {
+    md += `rounded:\n`;
+    Object.entries(data.tokens.radii).slice(0, 3).forEach(([name, val]) => {
+      md += `  ${name}: ${val}\n`;
+    });
+  }
+
+  if (data.tokens.animations) {
+    md += `animations:\n`;
+    data.tokens.animations.slice(0, 3).forEach((val, i) => {
+      md += `  transition-${i+1}: "${val}"\n`;
+    });
+  }
+
   // Components
   md += `components:\n`;
   data.components.slice(0, 3).forEach((comp, i) => {
     const compName = comp.name.replace(/[^a-zA-Z0-9-]/g, '-').toLowerCase();
     md += `  ${compName}:\n`;
-    // Add dummy or extracted values
     md += `    padding: "16px"\n`;
   });
 
@@ -323,6 +344,14 @@ colors:
     if (i === 0 && !validColors.find(c => c[0] === 'primary')) safeName = 'primary';
     md += `- **${safeName.charAt(0).toUpperCase() + safeName.slice(1)} (${val})**\n`;
   });
+
+  md += `\n## Animation & Micro-Interactions\n\n`;
+  md += `Common transitions observed:\n`;
+  if (data.tokens.animations) {
+    data.tokens.animations.forEach(a => md += `- \`${a}\`\n`);
+  } else {
+    md += `- Default smooth hover states on interactive elements.\n`;
+  }
   
   md += `\n## Components\n\n`;
   data.components.forEach(comp => {

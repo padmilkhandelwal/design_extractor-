@@ -156,6 +156,7 @@ export default function App() {
           - typography: key-value pairs defining fontFamily and fontSize
           - spacing: key-value pairs defining standard margins/padding (e.g., base: 16px)
           - rounded: key-value pairs defining border radius (e.g., md: 8px)
+          - animations: key-value pairs defining common duration, easing, and transitions (e.g., fast: "0.2s ease-in-out")
         2. Put the human-readable Markdown body below the frontmatter. MUST include these exact sections in order:
            ## Overview
            ## Colors
@@ -163,9 +164,11 @@ export default function App() {
            ## Layout
            ## Elevation & Depth
            ## Shapes
+           ## Animation & Micro-Interactions
            ## Components
         3. Summarize the Brand Identity and Visual Direction of ${siteUrl}.
         4. Normalize the color tokens and give them semantic names (primary, secondary, neutral, text, surface, etc). Ensure contrast in descriptions.
+        5. Describe button hover states, focus rings, link hover effects, and page transitions under Animation & Micro-Interactions.
         
         Raw HTML Context (Sample): ${result.html.substring(0, 3000)}
         Raw CSS Context (Sample): ${result.css.substring(0, 3000)}
