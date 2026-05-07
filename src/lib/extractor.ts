@@ -4,6 +4,7 @@
  */
 
 export interface DesignTokens {
+  animations?: string[];
   colors: Record<string, string>;
   fontSizes: Record<string, string>;
   spacing: Record<string, string>;
@@ -312,7 +313,12 @@ colors:
   if (data.tokens.radii) {
     md += `rounded:\n`;
     Object.entries(data.tokens.radii).slice(0, 3).forEach(([name, val]) => {
-      md += `  ${name}: ${val}\n`;
+      // make sure valid token name without numbers for spec
+      let safeName = name.replace('radius-', 'md-');
+      if(name === 'radius-1') safeName = 'sm';
+      if(name === 'radius-2') safeName = 'md';
+      if(name === 'radius-3') safeName = 'lg';
+      md += `  ${safeName}: ${val}\n`;
     });
   }
 
